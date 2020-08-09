@@ -29,6 +29,12 @@ func NewClientSubscriber(client *client.Client) *ClientSubscriber {
 		panic(err)
 	}
 
+	if _, err := client.Pc.AddTransceiverFromKind(webrtc.RTPCodecTypeAudio, webrtc.RtpTransceiverInit{
+		Direction: webrtc.RTPTransceiverDirectionRecvonly,
+	}); err != nil {
+		panic(err)
+	}
+
 	return &ClientSubscriber{client}
 }
 
