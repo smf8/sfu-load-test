@@ -23,7 +23,6 @@ func main() {
 
 	flag.Parse()
 
-	fmt.Println(*filepath)
 	if *subs == 0 && *pubs == 0 {
 		logrus.Fatalf("you must specify one of -pub or -sub to a non-zero number.")
 	}
