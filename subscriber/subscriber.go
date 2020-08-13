@@ -40,10 +40,10 @@ func NewClientSubscriber(client *client.Client) *ClientSubscriber {
 
 func (cs ClientSubscriber) Subscribe() {
 	cs.client.Pc.OnICEConnectionStateChange(func(connectionState webrtc.ICEConnectionState) {
-		logrus.Printf("Client Connection State has changed %s \n", connectionState.String())
+		logrus.Printf("Client %s Connection State has changed %s \n", cs.client.Name, connectionState.String())
 
 		if connectionState == webrtc.ICEConnectionStateClosed {
-			logrus.Println("Finished writing to video")
+			logrus.Println("Finished receiving media")
 		}
 	})
 
@@ -63,5 +63,5 @@ func (cs ClientSubscriber) Subscribe() {
 }
 
 func (cs *ClientSubscriber) handleTrack(tr *webrtc.Track) {
-
+	logrus.Println("handling track", tr.Kind())
 }

@@ -7,7 +7,7 @@ import (
 	"io"
 	"path/filepath"
 
-	sfu_client "github.com/pion/ion-sfu/cmd/server/grpc/proto"
+	sfuclient "github.com/pion/ion-sfu/cmd/server/grpc/proto"
 	"github.com/pion/webrtc/v3"
 	"github.com/sirupsen/logrus"
 	"github.com/smf8/producer"
@@ -23,17 +23,17 @@ const Subscriber = "subscriber"
 
 type Client struct {
 	Name       string
-	Sid        uint32
+	Sid        string
 	Pc         *webrtc.PeerConnection
 	cType      string
 	AudioTrack *webrtc.Track
 	VideoTrack *webrtc.Track
 	conn       *grpc.ClientConn
-	C          sfu_client.SFUClient
+	C          sfuclient.SFUClient
 	Media      producer.IFileProducer
 }
 
-func NewClient(name, cType, address string, sid uint32) *Client {
+func NewClient(name, cType, address string, sid string) *Client {
 	logrus.Debugln("Creating a new client")
 
 	var err error
@@ -49,7 +49,7 @@ func NewClient(name, cType, address string, sid uint32) *Client {
 		return nil
 	}
 
-	client.C = sfu_client.NewSFUClient(client.conn)
+	client.C = sfuclient.NewSFUClient(client.conn)
 
 	conf := webrtc.Configuration{
 		ICEServers: []webrtc.ICEServer{
@@ -107,26 +107,26 @@ func (c *Client) Connect() {
 
 		bytes, err := json.Marshal(candidate.ToJSON())
 		if err != nil {
-			logrus.Fatalf("OnIceCandidate error %s", err)
+			logrus.Errorf("OnIceCandidate error %s", err)
 		}
 
-		err = client.Send(&sfu_client.SignalRequest{
-			Payload: &sfu_client.SignalRequest_Trickle{
-				Trickle: &sfu_client.Trickle{
+		err = client.Send(&sfuclient.SignalRequest{
+			Payload: &sfuclient.SignalRequest_Trickle{
+				Trickle: &sfuclient.Trickle{
 					Init: string(bytes),
 				},
 			},
 		})
 		if err != nil {
-			logrus.Fatalf("OnIceCandidate error %s", err)
+			logrus.Errorf("OnIceCandidate error %s", err)
 		}
 	})
 
-	err = client.Send(&sfu_client.SignalRequest{
-		Payload: &sfu_client.SignalRequest_Join{
-			Join: &sfu_client.JoinRequest{
+	err = client.Send(&sfuclient.SignalRequest{
+		Payload: &sfuclient.SignalRequest_Join{
+			Join: &sfuclient.JoinRequest{
 				Sid: c.Sid,
-				Offer: &sfu_client.SessionDescription{
+				Offer: &sfuclient.SessionDescription{
 					Type: offer.Type.String(),
 					Sdp:  []byte(c.Pc.LocalDescription().SDP),
 				},
@@ -135,7 +135,7 @@ func (c *Client) Connect() {
 	})
 
 	if err != nil {
-		logrus.Fatalf("failed sending join request %v", err)
+		logrus.Errorf("%s failed sending join request %v", c.Name, err)
 	}
 
 	for {
@@ -147,11 +147,11 @@ func (c *Client) Connect() {
 		}
 
 		if err != nil {
-			logrus.Fatalf("Error receiving publish response: %v", err)
+			logrus.Errorf("Error receiving publish response: %v", err)
 		}
 
 		switch payload := reply.Payload.(type) {
-		case *sfu_client.SignalReply_Join:
+		case *sfuclient.SignalReply_Join:
 			fmt.Printf("Got answer from sfu. Starting streaming for pid %v!\n", payload.Join.Pid)
 			// Set the remote SessionDescription
 			if err = c.Pc.SetRemoteDescription(webrtc.SessionDescription{
@@ -161,7 +161,7 @@ func (c *Client) Connect() {
 				panic(err)
 			}
 
-		case *sfu_client.SignalReply_Trickle:
+		case *sfuclient.SignalReply_Trickle:
 			var candidate webrtc.ICECandidateInit
 			err := json.Unmarshal([]byte(payload.Trickle.Init), &candidate)
 
@@ -170,7 +170,7 @@ func (c *Client) Connect() {
 			}
 
 			if err := c.Pc.AddICECandidate(candidate); err != nil {
-				logrus.Errorf("%v", status.Errorf(codes.Internal, "error adding ice candidate"))
+				logrus.Errorf("%v", status.Errorf(codes.Internal, "error adding ice candidate %v", err))
 			}
 		}
 	}

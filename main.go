@@ -12,13 +12,15 @@ import (
 	"github.com/smf8/sfu-load-test/subscriber"
 )
 
+const connectWaitTime = 500 * time.Millisecond
+
 func main() {
 	log.SetupLogger()
 
 	server := flag.String("server", "localhost:50051", "sfu's server and port")
 	subs := flag.Int("sub", 0, "number of subscribers")
 	pubs := flag.Int("pub", 0, "number of publishers")
-	sid := flag.Uint("sid", 1, "session ID to join in SFU")
+	sid := flag.String("sid", "session", "session ID to join in SFU")
 	filepath := flag.String("file", "", "video file to publish")
 
 	flag.Parse()
@@ -32,7 +34,7 @@ func main() {
 	clients := make([]*client.Client, 0)
 
 	for sub := range subscribers {
-		cl := client.NewClient(fmt.Sprintf("subscriber_%d", sub), client.Subscriber, *server, uint32(*sid))
+		cl := client.NewClient(fmt.Sprintf("subscriber_%d", sub), client.Subscriber, *server, *sid)
 		s := subscriber.NewClientSubscriber(cl)
 		clients = append(clients, cl)
 
@@ -41,7 +43,7 @@ func main() {
 	}
 
 	for pub := range publishers {
-		cl := client.NewClient(fmt.Sprintf("publisher_%d", pub), client.Publisher, *server, uint32(*sid))
+		cl := client.NewClient(fmt.Sprintf("publisher_%d", pub), client.Publisher, *server, *sid)
 		clients = append(clients, cl)
 
 		p, err := publisher.NewPublisher(*filepath, cl)
@@ -55,8 +57,7 @@ func main() {
 
 	for cl := range clients {
 		go clients[cl].Connect()
-		fmt.Println("sdfd")
-		<-time.After(time.Second)
+		<-time.After(connectWaitTime)
 	}
 
 	select {}
