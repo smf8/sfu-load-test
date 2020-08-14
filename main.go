@@ -34,7 +34,7 @@ func main() {
 	clients := make([]*client.Client, 0)
 
 	for sub := range subscribers {
-		cl := client.NewClient(fmt.Sprintf("subscriber_%d", sub), client.Subscriber, *server, *sid)
+		cl := client.NewClient(fmt.Sprintf("subscriber_%d", sub), client.Subscriber, *sid)
 		s := subscriber.NewClientSubscriber(cl)
 		clients = append(clients, cl)
 
@@ -43,7 +43,7 @@ func main() {
 	}
 
 	for pub := range publishers {
-		cl := client.NewClient(fmt.Sprintf("publisher_%d", pub), client.Publisher, *server, *sid)
+		cl := client.NewClient(fmt.Sprintf("publisher_%d", pub), client.Publisher, *sid)
 		clients = append(clients, cl)
 
 		p, err := publisher.NewPublisher(*filepath, cl)
@@ -56,7 +56,9 @@ func main() {
 	}
 
 	for cl := range clients {
-		go clients[cl].Connect()
+		connected := make(chan bool)
+		go clients[cl].Connect(connected, *server)
+		<- connected
 		<-time.After(connectWaitTime)
 	}
 

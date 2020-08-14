@@ -33,7 +33,7 @@ type Client struct {
 	Media      producer.IFileProducer
 }
 
-func NewClient(name, cType, address string, sid string) *Client {
+func NewClient(name, cType, sid string) *Client {
 	logrus.Debugln("Creating a new client")
 
 	var err error
@@ -41,15 +41,6 @@ func NewClient(name, cType, address string, sid string) *Client {
 	client := new(Client)
 	client.Name = name
 	client.Sid = sid
-
-	client.conn, err = grpc.Dial(address, grpc.WithInsecure(), grpc.WithBlock())
-	if err != nil {
-		logrus.Errorf("did not connect: %v", err)
-
-		return nil
-	}
-
-	client.C = sfuclient.NewSFUClient(client.conn)
 
 	conf := webrtc.Configuration{
 		ICEServers: []webrtc.ICEServer{
@@ -78,16 +69,29 @@ func NewClient(name, cType, address string, sid string) *Client {
 }
 
 //nolint:funlen
-func (c *Client) Connect() {
+func (c *Client) Connect(connected chan bool, address string) {
+	logger := logrus.WithField("Client", c.Name)
+	var err error
+
+	c.conn, err = grpc.Dial(address, grpc.WithInsecure(), grpc.WithBlock())
+	if err != nil {
+		logger.Errorf("did not connect: %v", err)
+
+		return
+	}
+
+	c.C = sfuclient.NewSFUClient(c.conn)
+
+
 	offer, err := c.Pc.CreateOffer(nil)
 	if err != nil {
-		logrus.Errorf("Error creating local SD for %s: %v aborting", c.Name, err)
+		logger.Errorf("Error creating local SD for %s: %v aborting", c.Name, err)
 		return
 	}
 
 	err = c.Pc.SetLocalDescription(offer)
 	if err != nil {
-		logrus.Errorf("Error setting local SD for %s: %v aborting", c.Name, err)
+		logger.Errorf("Error setting local SD for %s: %v aborting", c.Name, err)
 		return
 	}
 
@@ -95,7 +99,7 @@ func (c *Client) Connect() {
 	client, err := c.C.Signal(ctx)
 
 	if err != nil {
-		logrus.Errorf("Error publishing stream for %s: %v aborting", c.Name, err)
+		logger.Errorf("Error publishing stream for %s: %v aborting", c.Name, err)
 		return
 	}
 
@@ -107,7 +111,7 @@ func (c *Client) Connect() {
 
 		bytes, err := json.Marshal(candidate.ToJSON())
 		if err != nil {
-			logrus.Errorf("OnIceCandidate error %s", err)
+			logger.Errorf("OnIceCandidate error %s", err)
 		}
 
 		err = client.Send(&sfuclient.SignalRequest{
@@ -118,7 +122,7 @@ func (c *Client) Connect() {
 			},
 		})
 		if err != nil {
-			logrus.Errorf("OnIceCandidate error %s", err)
+			logger.Errorf("OnIceCandidate error %s", err)
 		}
 	})
 
@@ -135,7 +139,23 @@ func (c *Client) Connect() {
 	})
 
 	if err != nil {
-		logrus.Errorf("%s failed sending join request %v", c.Name, err)
+		logger.Errorf("failed sending join request %v", err)
+
+		reply, err := client.Recv()
+
+		if err == io.EOF {
+			// WebRTC Transport closed
+			logger.Println("WebRTC Transport Closed")
+		}
+
+		if err != nil {
+			logger.Errorf("Error receiving publish response: %v", err)
+			connected <- false
+			return
+		}
+
+		logger.Printf("%v\n", reply)
+		return
 	}
 
 	for {
@@ -143,11 +163,13 @@ func (c *Client) Connect() {
 
 		if err == io.EOF {
 			// WebRTC Transport closed
-			logrus.Println("WebRTC Transport Closed")
+			logger.Println("WebRTC Transport Closed")
 		}
 
 		if err != nil {
-			logrus.Errorf("Error receiving publish response: %v", err)
+			logger.Errorf("Error receiving publish response: %v", err)
+			connected <- false
+			return
 		}
 
 		switch payload := reply.Payload.(type) {
@@ -160,17 +182,18 @@ func (c *Client) Connect() {
 			}); err != nil {
 				panic(err)
 			}
+			connected <- true
 
 		case *sfuclient.SignalReply_Trickle:
 			var candidate webrtc.ICECandidateInit
 			err := json.Unmarshal([]byte(payload.Trickle.Init), &candidate)
 
 			if err != nil {
-				logrus.Errorf("error parsing ice candidate: %v", err)
+				logger.Errorf("error parsing ice candidate: %v", err)
 			}
 
 			if err := c.Pc.AddICECandidate(candidate); err != nil {
-				logrus.Errorf("%v", status.Errorf(codes.Internal, "error adding ice candidate %v", err))
+				logger.Errorf("%v", status.Errorf(codes.Internal, "error adding ice candidate %v", err))
 			}
 		}
 	}
